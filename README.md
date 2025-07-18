@@ -48,8 +48,9 @@ cp .env.example .env
 
 ```bash
 # 钉钉机器人配置
-DINGTALK_WEBHOOK_SECRET=your_webhook_secret_here
-DINGTALK_BOT_TOKEN=your_bot_token_here
+# 注意：自定义机器人通常不需要以下配置，留空即可
+DINGTALK_WEBHOOK_SECRET=
+DINGTALK_BOT_TOKEN=
 
 # GCP Vertex AI 配置
 GCP_PROJECT_ID=your_gcp_project_id
@@ -70,8 +71,9 @@ DEBUG=False
 ### 4. 钉钉机器人配置
 
 1. 在钉钉群中创建自定义机器人
-2. 获取 Webhook URL 和安全设置中的密钥
+2. 获取 Webhook URL 
 3. 设置机器人的 Webhook URL 为你的服务地址 `https://your-domain.com/webhook`
+4. 自定义机器人通常不需要额外的密钥配置
 
 ## 运行应用
 

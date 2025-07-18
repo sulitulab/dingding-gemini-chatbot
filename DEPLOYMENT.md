@@ -29,7 +29,10 @@ nano .env
 必须配置的环境变量：
 - `GCP_PROJECT_ID`: 您的 GCP 项目 ID
 - `GOOGLE_APPLICATION_CREDENTIALS`: GCP 服务账号密钥文件路径
-- `DINGTALK_WEBHOOK_SECRET`: 钉钉机器人密钥（可选）
+
+可选配置的环境变量：
+- `DINGTALK_WEBHOOK_SECRET`: 钉钉机器人密钥（自定义机器人通常不需要）
+- `DINGTALK_BOT_TOKEN`: 钉钉机器人Token（自定义机器人通常不需要）
 
 ### 4. 启动应用
 
@@ -137,7 +140,8 @@ gcloud run deploy dingtalk-bot \
 
 1. 将您的服务地址设置为机器人的 Webhook URL
 2. 格式：`https://your-domain.com/webhook`
-3. 如果使用了加签安全设置，将密钥配置到 `DINGTALK_WEBHOOK_SECRET` 环境变量
+3. 自定义机器人通常不需要额外的安全设置
+4. 如果您的钉钉机器人使用了"加签"安全设置，需要将密钥配置到 `DINGTALK_WEBHOOK_SECRET` 环境变量
 
 ### 3. 测试机器人
 
