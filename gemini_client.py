@@ -9,8 +9,19 @@ import time
 import logging
 from typing import Optional
 
-from google.cloud import aiplatform
-from vertexai.generative_models import GenerativeModel, ChatSession
+try:
+    # 尝试新版本的导入方式
+    import vertexai
+    from vertexai.generative_models import GenerativeModel, ChatSession
+    USE_VERTEXAI = True
+except ImportError:
+    try:
+        # 尝试旧版本的导入方式
+        from google.cloud import aiplatform
+        from google.cloud.aiplatform.gapic.schema import predict
+        USE_VERTEXAI = False
+    except ImportError:
+        raise ImportError("请安装 vertexai 或 google-cloud-aiplatform 包")
 
 logger = logging.getLogger(__name__)
 
@@ -40,14 +51,22 @@ class GeminiClient:
             bool: 是否初始化成功
         """
         try:
-            # 初始化 Vertex AI
-            aiplatform.init(
-                project=self.project_id,
-                location=self.location
-            )
-            
-            # 创建生成模型实例
-            self.model = GenerativeModel(self.model_name)
+            if USE_VERTEXAI:
+                # 使用新版本 vertexai
+                vertexai.init(
+                    project=self.project_id,
+                    location=self.location
+                )
+                self.model = GenerativeModel(self.model_name)
+            else:
+                # 使用旧版本 google-cloud-aiplatform
+                from google.cloud import aiplatform
+                aiplatform.init(
+                    project=self.project_id,
+                    location=self.location
+                )
+                # 旧版本不支持 GenerativeModel，需要使用不同的方法
+                self.model = None
             
             logger.info(f"Vertex AI 初始化成功，模型: {self.model_name}")
             return True
@@ -77,51 +96,104 @@ class GeminiClient:
         Returns:
             str: 生成的内容
         """
-        if not self.model:
-            raise RuntimeError("模型未初始化")
-        
         try:
             # 开始计时
             start_time = time.time()
             
-            # 生成配置 - 关闭CoT，追求快速响应
-            generation_config = {
-                "temperature": temperature,
-                "top_p": top_p,
-                "top_k": top_k,
-                "max_output_tokens": max_output_tokens,
-                "response_mime_type": "text/plain"
-            }
-            
-            # 安全设置
-            safety_settings = {
-                "HARM_CATEGORY_HARASSMENT": "BLOCK_MEDIUM_AND_ABOVE",
-                "HARM_CATEGORY_HATE_SPEECH": "BLOCK_MEDIUM_AND_ABOVE",
-                "HARM_CATEGORY_SEXUALLY_EXPLICIT": "BLOCK_MEDIUM_AND_ABOVE",
-                "HARM_CATEGORY_DANGEROUS_CONTENT": "BLOCK_MEDIUM_AND_ABOVE",
-            }
-            
-            # 调用模型生成响应
-            response = self.model.generate_content(
-                prompt,
-                generation_config=generation_config,
-                safety_settings=safety_settings
-            )
-            
-            # 结束计时
-            end_time = time.time()
-            response_time = end_time - start_time
-            
-            # 检查响应
-            if response.text:
-                logger.info(f"Gemini响应成功，耗时: {response_time:.2f}秒")
-                return response.text.strip()
+            if USE_VERTEXAI and self.model:
+                # 使用新版本 vertexai
+                generation_config = {
+                    "temperature": temperature,
+                    "top_p": top_p,
+                    "top_k": top_k,
+                    "max_output_tokens": max_output_tokens,
+                }
+                
+                safety_settings = {
+                    "HARM_CATEGORY_HARASSMENT": "BLOCK_MEDIUM_AND_ABOVE",
+                    "HARM_CATEGORY_HATE_SPEECH": "BLOCK_MEDIUM_AND_ABOVE",
+                    "HARM_CATEGORY_SEXUALLY_EXPLICIT": "BLOCK_MEDIUM_AND_ABOVE",
+                    "HARM_CATEGORY_DANGEROUS_CONTENT": "BLOCK_MEDIUM_AND_ABOVE",
+                }
+                
+                response = self.model.generate_content(
+                    prompt,
+                    generation_config=generation_config,
+                    safety_settings=safety_settings
+                )
+                
+                if response.text:
+                    end_time = time.time()
+                    response_time = end_time - start_time
+                    logger.info(f"Gemini响应成功，耗时: {response_time:.2f}秒")
+                    return response.text.strip()
+                else:
+                    logger.warning("Gemini返回空响应")
+                    return "抱歉，我无法处理这个问题，请换个方式提问。"
             else:
-                logger.warning("Gemini返回空响应")
-                return "抱歉，我无法处理这个问题，请换个方式提问。"
+                # 使用旧版本方式或降级处理
+                return self._generate_content_legacy(prompt, temperature, top_p, top_k, max_output_tokens)
                 
         except Exception as e:
             logger.error(f"调用 Gemini 模型失败: {e}")
+            return "抱歉，AI服务暂时不可用，请稍后再试。"
+    
+    def _generate_content_legacy(self, prompt: str, temperature: float, top_p: float, top_k: int, max_output_tokens: int) -> str:
+        """
+        使用旧版本API生成内容
+        """
+        try:
+            import requests
+            import json
+            
+            # 使用 REST API 调用
+            from google.auth import default
+            from google.auth.transport.requests import Request
+            
+            # 获取认证
+            credentials, project_id = default()
+            credentials.refresh(Request())
+            
+            # 构建API URL
+            url = f"https://{self.location}-aiplatform.googleapis.com/v1/projects/{self.project_id}/locations/{self.location}/publishers/google/models/{self.model_name}:generateContent"
+            
+            # 构建请求数据
+            data = {
+                "contents": [{
+                    "role": "user",
+                    "parts": [{"text": prompt}]
+                }],
+                "generation_config": {
+                    "temperature": temperature,
+                    "top_p": top_p,
+                    "top_k": top_k,
+                    "max_output_tokens": max_output_tokens
+                }
+            }
+            
+            # 发送请求
+            headers = {
+                "Authorization": f"Bearer {credentials.token}",
+                "Content-Type": "application/json"
+            }
+            
+            response = requests.post(url, json=data, headers=headers, timeout=30)
+            response.raise_for_status()
+            
+            result = response.json()
+            
+            # 解析响应
+            if "candidates" in result and len(result["candidates"]) > 0:
+                candidate = result["candidates"][0]
+                if "content" in candidate and "parts" in candidate["content"]:
+                    parts = candidate["content"]["parts"]
+                    if len(parts) > 0 and "text" in parts[0]:
+                        return parts[0]["text"].strip()
+            
+            return "抱歉，我无法处理这个问题，请换个方式提问。"
+            
+        except Exception as e:
+            logger.error(f"使用旧版本API调用失败: {e}")
             return "抱歉，AI服务暂时不可用，请稍后再试。"
     
     def start_chat(self) -> bool:
